@@ -210,7 +210,7 @@ def to_set(df: pd.DataFrame, col: str) -> set:
         v for v in normalized
         if len(v) >= 2
     )
-
+    
     lex_dfs = {}
     for key in [
         "kbbi",
