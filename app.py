@@ -548,12 +548,11 @@ def render_highlighted_text(text: str, rows: List[dict]) -> str:
             parts.append(token_html)
         cursor = m.end()
     parts.append(escape_html(text[cursor:]))
- 
-def render_text(parts):
+
     return (
-        '<div style="line-height:1.95; font-size:1.02rem; '
-        'white-space:pre-wrap; word-break:break-word; '
-        'color:#111827;">'
+    '<div style=\"line-height:1.95; font-size:1.02rem; '
+    'white-space:pre-wrap; word-break:break-word; '
+    'color:#111827;\">'
         + "".join(parts)
         + "</div>"
     )
