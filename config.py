@@ -7,7 +7,7 @@ DRIVE_IDS = {
 
     # File leksikon
     "kbbi"              : "1RooLxbgIn3LN3nJgl6C5325F1Ciwugio",
-    "kata_inggris"      : "1m7uX5lVKV0yht6LATvd78WSrKPpwihww",
+    "kata_inggris"      : "1UkTwMRun4OkXs2zsdnEgU6z6LjMG8DBx",
     "kata_serapan"      : "1g_TCVwcFfDLYYnob5Ylnm5LaxSDNtCmO",
     "akronim"           : "1Crk5PPlIQ4PE7zr0kf6kLrkhAwaosCzw",
     "daftar_lembaga"    : "1RfRHN6rTa-JPPXV0SCGq1nl2k0EUDRUJ",
