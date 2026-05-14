@@ -1,3 +1,4 @@
+
 import os
 import re
 import time
@@ -68,40 +69,93 @@ html, body, [class*="css"] {
 .flag-kata-serapan  { background: #d1fae5; color: #065f46; border-bottom-color: #10b981; }
 .flag-whitelist     { background: #ede9fe; color: #4c1d95; border-bottom-color: #7c3aed; }
 
-/* ── Tooltip ── */
-.tooltip-box {
-    visibility: hidden;
-    opacity: 0;
-    position: absolute;
-    bottom: calc(100% + 8px);
+/* ── Tooltip / Panel klik ── */
+.word-wrap {
+    position: relative;
+    display: inline-block;
+    margin: 0 1px;
+}
+
+/* Panel detail yang muncul saat diklik */
+.token-panel {
+    display: none;
+    position: fixed;
+    top: 50%;
     left: 50%;
-    transform: translateX(-50%);
+    transform: translate(-50%, -50%);
     background: #1e1e2e;
     color: #cdd6f4;
-    border-radius: 8px;
-    padding: 10px 14px;
-    width: 220px;
-    font-size: 0.82em;
+    border-radius: 12px;
+    padding: 16px 20px;
+    width: 300px;
+    font-size: 0.85em;
     font-family: 'DM Sans', sans-serif;
-    line-height: 1.5;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-    z-index: 9999;
-    pointer-events: none;
-    transition: opacity 0.18s;
+    line-height: 1.6;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    z-index: 99999;
     white-space: normal;
 }
-.tooltip-box::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: #1e1e2e;
+.token-panel.active { display: block; }
+
+.panel-close {
+    float: right;
+    cursor: pointer;
+    font-size: 1.1em;
+    color: #f38ba8;
+    margin-left: 8px;
 }
-.word-wrap:hover .tooltip-box {
-    visibility: visible;
-    opacity: 1;
+.panel-close:hover { color: #ff5555; }
+
+.panel-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    z-index: 99998;
+}
+.panel-overlay.active { display: block; }
+
+.rec-btn {
+    display: inline-block;
+    margin: 3px 4px 3px 0;
+    padding: 3px 10px;
+    background: #313244;
+    color: #cba6f7;
+    border: 1px solid #7c3aed;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.88em;
+    font-family: 'DM Sans', sans-serif;
+    transition: background 0.15s;
+}
+.rec-btn:hover { background: #45475a; }
+
+.ignore-btn {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 4px 12px;
+    background: #1e1e2e;
+    color: #a6e3a1;
+    border: 1px solid #40a02b;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-family: 'DM Sans', sans-serif;
+    transition: background 0.15s;
+}
+.ignore-btn:hover { background: #2a2a3e; }
+
+.panel-divider {
+    border: none;
+    border-top: 1px solid #45475a;
+    margin: 8px 0;
+}
+
+/* Tanda bahwa token sudah diabaikan */
+.token-ignored {
+    text-decoration: line-through;
+    opacity: 0.45;
+    cursor: default;
 }
 
 /* ── Teks normal (tidak bermasalah) ── */
@@ -177,6 +231,73 @@ def normalize_token(token: str) -> str:
     if pd.isna(token):
         return ""
     return clean_whitespace(normalize_unicode(token)).lower().strip()
+
+# ==============================================================
+# STEMMING RINGAN — Deteksi Kata Berimbuhan
+# ==============================================================
+#
+# Tujuan: jika token tidak ditemukan di KBBI, coba lepas afiks
+# umum bahasa Indonesia dan cek bentuk dasarnya.
+# Ini bukan full Nazief-Adriani/PySastrawi stemmer, melainkan
+# rule-based stripping afiks paling produktif di teks berita.
+#
+# Justifikasi: pendekatan strip-afiks sederhana untuk spell check
+# sudah digunakan di banyak sistem (Hunspell, Aspell) dan terbukti
+# efektif mengurangi false positive pada bahasa berimbuhan tinggi
+# (Adriani et al., 2007 — Confix-Stripping Stemmer for Indonesian).
+#
+# Urutan stripping: sufiks → prefiks → konfiks (kombinasi)
+# ==============================================================
+
+_SUFIKS  = ["nya", "kan", "lah", "kah", "pun", "ku", "mu", "an", "i"]
+_PREFIKS = ["me", "mem", "men", "meng", "meny", "me",
+            "ber", "be", "ter", "pe", "per", "di", "ke", "se"]
+_KONFIKS = [("me","kan"), ("me","i"), ("ber","kan"), ("ber","i"),
+            ("per","kan"), ("per","i"), ("di","kan"), ("di","i"),
+            ("ke","an"), ("pe","an"), ("per","an")]
+
+def strip_afiks(token: str) -> list:
+    """
+    Kembalikan kandidat bentuk dasar setelah stripping afiks.
+    Hanya stripping yang menghasilkan panjang >= 3 karakter.
+    """
+    candidates = set()
+    t = token
+
+    # Strip sufiks
+    for suf in _SUFIKS:
+        if t.endswith(suf) and len(t) - len(suf) >= 3:
+            candidates.add(t[: -len(suf)])
+
+    # Strip prefiks dari token asli dan dari hasil strip sufiks
+    sources = {t} | candidates.copy()
+    for src in sources:
+        for pre in _PREFIKS:
+            if src.startswith(pre) and len(src) - len(pre) >= 3:
+                candidates.add(src[len(pre):])
+
+    # Strip konfiks (prefiks + sufiks sekaligus)
+    for pre, suf in _KONFIKS:
+        if t.startswith(pre) and t.endswith(suf):
+            base = t[len(pre): -len(suf)]
+            if len(base) >= 3:
+                candidates.add(base)
+
+    return list(candidates)
+
+
+def is_kata_berimbuhan_valid(token: str, kbbi_set: set) -> bool:
+    """
+    True jika token adalah kata berimbuhan yang bentuk dasarnya ada di KBBI.
+    Langsung return False jika token sudah ada di KBBI (tidak perlu cek).
+    """
+    if token in kbbi_set:
+        return True
+    for base in strip_afiks(token):
+        if base in kbbi_set:
+            return True
+    return False
+
 
 def simple_sentence_split(text: str) -> list:
     text = clean_whitespace(str(text))
@@ -422,6 +543,10 @@ def classify_token(token: str, kbbi_set, inggris_set,
         return "KATA_SERAPAN"
     if t in kbbi_set:
         return "KBBI_VALID"
+    # [F5] Cek bentuk dasar setelah stripping afiks
+    # Justifikasi: Adriani et al. (2007) — Confix-Stripping Stemmer
+    if is_kata_berimbuhan_valid(t, kbbi_set):
+        return "KBBI_VALID"
     if t in inggris_set:
         return "KATA_INGGRIS"
     return "TIDAK_DIKENAL"
@@ -638,10 +763,13 @@ FLAG_BORDER_HEX = {
 
 def build_highlighted_html(text: str, results: list) -> str:
     """
-    Bangun HTML teks lengkap dengan kata bermasalah di-highlight
-    dan tooltip saat hover.
+    Bangun HTML teks lengkap dengan kata bermasalah di-highlight.
+    Klik kata → panel detail muncul dengan tombol:
+      - [Ganti] untuk setiap rekomendasi
+      - [Abaikan] untuk menyembunyikan highlight
+    Implementasi murni HTML/CSS/JS — tidak memerlukan Streamlit component.
     """
-    # Buat index: token_norm -> list of result dicts (hanya yang bukan skipped)
+    # Buat index: token_norm -> result dict (hanya yang bukan skipped)
     flagged = {}
     for r in results:
         if r.get("_skipped"):
@@ -650,46 +778,130 @@ def build_highlighted_html(text: str, results: list) -> str:
         if key not in flagged:
             flagged[key] = r
 
-    # Tokenisasi sederhana dengan mempertahankan spasi & tanda baca
+    # Tokenisasi dengan mempertahankan spasi & tanda baca
     parts = re.split(r"(\s+|[^\w])", text)
 
     html_parts = []
+    panel_parts = []   # panel HTML dikumpulkan terpisah, dirender sekali di bawah
+
+    panel_ids_seen = set()
+
     for part in parts:
         if not part:
             continue
         part_norm = normalize_token(part)
         if part_norm and part_norm in flagged:
-            r   = flagged[part_norm]
-            css = FLAG_CSS.get(r["flag"], "")
+            r      = flagged[part_norm]
+            css    = FLAG_CSS.get(r["flag"], "")
+            label  = FLAG_LABEL.get(r["flag"], r["flag"])
+            recs   = r["rekomendasi"]
+            pid    = f"panel_{part_norm}"   # ID panel per kata unik
 
-            # Tooltip content
-            label = FLAG_LABEL.get(r["flag"], r["flag"])
-            recs  = r["rekomendasi"]
-            tt_lines = [f"<b>{label}</b>"]
-            if r["catatan"]:
-                tt_lines.append(f"ℹ️ {r['catatan']}")
-            if recs:
-                tt_lines.append("📋 Saran perbaikan:")
-                for i, rec in enumerate(recs[:5], 1):
-                    tt_lines.append(f"&nbsp;&nbsp;{i}. {rec}")
-            else:
-                tt_lines.append("Tidak ada saran spesifik.")
-            tt_lines.append(f"<hr style='margin:4px 0;border-color:#444'>")
-            tt_lines.append(f"JW: {r['jw_sim']} &nbsp;|&nbsp; BERT: {r['prob_error']:.4f}")
-            tooltip_html = "<br>".join(tt_lines)
-
+            # Render token yang bisa diklik
             html_parts.append(
                 f'<span class="word-wrap">'
-                f'<span class="token-badge {css}">{part}</span>'
-                f'<div class="tooltip-box">{tooltip_html}</div>'
+                f'<span class="token-badge {css}" '
+                f'onclick="openPanel(\'{pid}\')" '
+                f'title="Klik untuk detail">'
+                f'{part}</span>'
                 f'</span>'
             )
+
+            # Buat panel sekali per kata unik
+            if pid not in panel_ids_seen:
+                panel_ids_seen.add(pid)
+
+                # Baris rekomendasi sebagai tombol klik
+                rec_html = ""
+                if recs:
+                    rec_html = "<div style='margin-top:6px'><b>📋 Saran perbaikan:</b><br>"
+                    for rec in recs[:5]:
+                        # onclick: ganti semua kemunculan kata ini di teks asli
+                        rec_html += (
+                            f'<span class="rec-btn" '
+                            f'onclick="replaceToken(\'{part_norm}\',\'{rec}\',\'{pid}\')">'
+                            f'{rec}</span>'
+                        )
+                    rec_html += "</div>"
+                else:
+                    rec_html = "<div style='margin-top:6px;color:#6c7086'>Tidak ada saran spesifik.</div>"
+
+                catatan_html = ""
+                if r["catatan"]:
+                    catatan_html = f"<div style='margin-top:4px;color:#f9e2af'>ℹ️ {r['catatan']}</div>"
+
+                panel_parts.append(f"""
+<div id="{pid}" class="token-panel">
+  <span class="panel-close" onclick="closePanel('{pid}')">✕</span>
+  <b>{label}</b><br>
+  <span style="color:#89b4fa">Token:</span> <code style="color:#cba6f7">{part_norm}</code>
+  {catatan_html}
+  <hr class="panel-divider">
+  <small style="color:#6c7086">JW sim: {r['jw_sim']} &nbsp;|&nbsp; BERT prob: {r['prob_error']:.4f}</small>
+  {rec_html}
+  <div>
+    <span class="ignore-btn" onclick="ignoreToken('{part_norm}','{pid}')">✓ Abaikan</span>
+  </div>
+</div>
+""")
         elif re.match(r"\s+", part):
             html_parts.append(part)
         else:
             html_parts.append(f'<span class="token-normal">{part}</span>')
 
-    return "".join(html_parts)
+    # Gabungkan: overlay + teks + semua panel + JS
+    overlay_html = '<div id="panel-overlay" class="panel-overlay" onclick="closeAllPanels()"></div>'
+
+    js = """
+<script>
+function openPanel(pid) {
+    closeAllPanels();
+    var p = document.getElementById(pid);
+    if (p) { p.classList.add('active'); }
+    document.getElementById('panel-overlay').classList.add('active');
+}
+function closePanel(pid) {
+    var p = document.getElementById(pid);
+    if (p) { p.classList.remove('active'); }
+    document.getElementById('panel-overlay').classList.remove('active');
+}
+function closeAllPanels() {
+    document.querySelectorAll('.token-panel').forEach(function(p){
+        p.classList.remove('active');
+    });
+    document.getElementById('panel-overlay').classList.remove('active');
+}
+function replaceToken(original, replacement, pid) {
+    // Tandai semua span dengan token ini sebagai "sudah diganti"
+    document.querySelectorAll('.token-badge').forEach(function(el) {
+        if (el.textContent.trim().toLowerCase() === original) {
+            el.textContent = replacement;
+            el.className = 'token-badge';   // hapus warna flag
+            el.style.background = '#d1fae5';
+            el.style.color = '#065f46';
+            el.style.borderBottom = '2px solid #10b981';
+            el.title = 'Diganti: ' + replacement;
+            el.onclick = null;
+        }
+    });
+    closePanel(pid);
+}
+function ignoreToken(original, pid) {
+    document.querySelectorAll('.token-badge').forEach(function(el) {
+        if (el.textContent.trim().toLowerCase() === original) {
+            el.className = 'token-ignored';
+            el.onclick = null;
+        }
+    });
+    closePanel(pid);
+}
+</script>
+"""
+
+    panels_html = "\n".join(panel_parts)
+    text_html   = "".join(html_parts)
+
+    return overlay_html + text_html + panels_html + js
 
 
 def render_legend(flags_present: set):
