@@ -124,10 +124,20 @@ def tokenize_with_spans(sentence: str) -> List[Tuple[str, int, int]]:
 def is_number_token(token: str) -> bool:
     return bool(re.fullmatch(r"[\d.,:/%-]+", token))
 
+def is_all_caps_token(token: str) -> bool:
+    return len(token) >= 2 and token.isupper()
+
 
 def is_title_case_name(token: str, position: int) -> bool:
-    """Heuristik ringan untuk nama orang/tempat pada posisi tengah kalimat."""
-    return position > 0 and len(token) > 2 and token[0].isupper() and not token.isupper()
+
+    if len(token) <= 2:
+        return False
+
+    # Title Case biasa
+    if token[0].isupper() and not token.isupper():
+        return True
+
+    return False
 
 
 # ==============================================================
@@ -471,6 +481,9 @@ def analyze_text(
                 continue
             if skip_proper_noun and is_title_case_name(tok, pos):
                 continue
+            # skip akronim kapital penuh
+            if is_all_caps_token(tok):
+            continue
 
             jw_res = predict_jw(
                 t,
