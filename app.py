@@ -1,4 +1,3 @@
-
 import os
 import re
 import time
@@ -187,6 +186,74 @@ def simple_sentence_split(text: str) -> list:
 def simple_tokenize(sentence: str) -> list:
     sentence = re.sub(r"[^\w\s]", " ", sentence)
     return [t.strip() for t in sentence.split() if t.strip()]
+
+# ==============================================================
+# PRE-PROCESSING FILTER — Reduksi False Positive
+# ==============================================================
+#
+# Filter ini diterapkan SEBELUM token masuk ke model deteksi.
+# Tidak mengubah parameter model (threshold, strategi hybrid).
+# Justifikasi ilmiah:
+#   [F1] Gelar akademik  → pre-processing domain teks akademik
+#        (Kukich, 1992; Hunspell documentation)
+#   [F2] Token < 3 kar.  → standar minimum length di spell checker
+#        (Norvig, 2009; GNU Aspell)
+#   [F3] Semua huruf kap → kemungkinan akronim/singkatan
+#        (Jurafsky & Martin, 2023, Ch. 2)
+#   [F4] Proper noun heur.→ token berawalan huruf kapital di tengah
+#        kalimat dianggap Named Entity, dikecualikan dari leksikon
+#        (Jurafsky & Martin, 2023, Ch. 8 — NER heuristic)
+# ==============================================================
+
+# [F1] Pola gelar akademik Indonesia yang umum di teks berita UIN
+_GELAR_RE = re.compile(
+    r"^("
+    r"prof|dr|ir|hj?|drs?|"
+    r"s\.pd|s\.t|s\.kom|s\.ag|s\.sos|s\.h|s\.e|s\.i\.kom|s\.psi|"
+    r"m\.pd|m\.si|m\.kom|m\.ag|m\.h|m\.e|m\.a|m\.sc|m\.eng|"
+    r"ph\.d|d\.sc|apt|lc|s\.farm|s\.kep|s\.ked|"
+    r"sp|spd|sag|sh|se|st|skom|mpd|msi|mkom|mag|mh|me|ma|msc|phd"
+    r")$",
+    re.IGNORECASE,
+)
+
+def is_gelar_akademik(token: str) -> bool:
+    """[F1] True jika token adalah gelar akademik."""
+    return bool(_GELAR_RE.match(token.strip(".")))
+
+def is_token_terlalu_pendek(token: str, min_len: int = 3) -> bool:
+    """[F2] True jika token lebih pendek dari batas minimum."""
+    return len(token) < min_len
+
+def is_akronim_kapital(token: str) -> bool:
+    """[F3] True jika token seluruhnya huruf kapital (kemungkinan akronim)."""
+    return token.isupper() and len(token) >= 2
+
+def is_proper_noun_heuristic(token: str, position: int) -> bool:
+    """
+    [F4] True jika token kemungkinan Named Entity berdasarkan heuristik
+    kapitalisasi. Token di posisi > 0 (bukan awal kalimat) yang diawali
+    huruf kapital dianggap nama orang/tempat/institusi.
+    Posisi 0 dikecualikan karena huruf kapital di awal kalimat adalah
+    aturan tata bahasa, bukan indikator Named Entity.
+    """
+    return position > 0 and len(token) > 0 and token[0].isupper()
+
+def should_skip_token(token: str, position: int,
+                      skip_proper_noun: bool = True) -> tuple:
+    """
+    Kembalikan (True, alasan) jika token harus dilewati,
+    (False, "") jika token perlu dicek.
+    """
+    if is_gelar_akademik(token):
+        return True, "gelar_akademik"
+    if is_token_terlalu_pendek(token):
+        return True, "terlalu_pendek"
+    if is_akronim_kapital(token):
+        return True, "akronim_kapital"
+    if skip_proper_noun and is_proper_noun_heuristic(token, position):
+        return True, "proper_noun"
+    return False, ""
 
 # ==============================================================
 # PATH LOKAL UNTUK CACHE UNDUHAN
@@ -420,15 +487,36 @@ def predict_bert(kalimat: str, token: str,
 def analyze_text(text: str, model_choice: str,
                  tokenizer, bert_model, device,
                  kbbi_set, inggris_set, whitelist_set,
-                 serapan_map, serapan_set, kbbi_list) -> list:
+                 serapan_map, serapan_set, kbbi_list,
+                 skip_proper_noun: bool = True) -> list:
     sentences = simple_sentence_split(text)
     results   = []
 
     for sent in sentences:
         tokens = simple_tokenize(sent)
-        for tok in tokens:
+        for pos, tok in enumerate(tokens):
             t = normalize_token(tok)
             if not t or len(t) < 2:
+                continue
+
+            # ── Pre-processing filter (reduksi false positive) ──
+            skip, skip_reason = should_skip_token(tok, pos, skip_proper_noun)
+            if skip:
+                results.append({
+                    "token"      : tok,
+                    "token_norm" : t,
+                    "kalimat"    : sent,
+                    "flag"       : "SKIPPED",
+                    "tipe_error" : skip_reason,
+                    "jw_pred"    : "-",
+                    "bert_pred"  : "-",
+                    "is_error"   : False,
+                    "prob_error" : 0.0,
+                    "jw_sim"     : 0.0,
+                    "rekomendasi": [],
+                    "catatan"    : "",
+                    "_skipped"   : True,
+                })
                 continue
 
             jw_res   = predict_jw(
@@ -502,6 +590,7 @@ def analyze_text(text: str, model_choice: str,
                 "jw_sim"     : jw_res["max_sim"],
                 "rekomendasi": recs,
                 "catatan"    : catatan,
+                "_skipped"   : False,
             })
 
     return results
@@ -552,9 +641,11 @@ def build_highlighted_html(text: str, results: list) -> str:
     Bangun HTML teks lengkap dengan kata bermasalah di-highlight
     dan tooltip saat hover.
     """
-    # Buat index: token_norm -> list of result dicts
+    # Buat index: token_norm -> list of result dicts (hanya yang bukan skipped)
     flagged = {}
     for r in results:
+        if r.get("_skipped"):
+            continue
         key = r["token_norm"]
         if key not in flagged:
             flagged[key] = r
@@ -654,6 +745,28 @@ with st.sidebar:
     show_tabel    = st.toggle("Tampilkan tabel detail",  value=True)
 
     st.markdown("---")
+
+    st.markdown("**Filter Pre-processing**")
+    st.caption(
+        "Filter ini diterapkan sebelum token masuk ke model, "
+        "untuk mengurangi false positive pada entitas yang bukan "
+        "target deteksi typo."
+    )
+    skip_proper_noun = st.toggle(
+        "Lewati nama orang/tempat (huruf kapital)",
+        value=True,
+        help=(
+            "Token berawalan huruf kapital di tengah kalimat "
+            "dianggap Named Entity (nama orang, tempat, institusi) "
+            "dan dilewati. Referensi: Jurafsky & Martin (2023), Ch. 8."
+        ),
+    )
+    st.caption(
+        "🔒 Filter gelar akademik (S.Pd., M.A., dll) dan "
+        "akronim ALL-CAPS selalu aktif secara otomatis."
+    )
+
+    st.markdown("---")
     st.caption("Noeni Indah Sulistiyani\nTeknik Informatika · UIN Jakarta")
 
 # ── Header ────────────────────────────────────────────────────
@@ -723,12 +836,16 @@ if text_to_run:
             tokenizer, bert_model, device,
             kbbi_set, inggris_set, whitelist_set,
             serapan_map, serapan_set, kbbi_list,
+            skip_proper_noun=skip_proper_noun,
         )
         elapsed = round(time.time() - t0, 2)
 
-    # Filter berdasarkan toggle sidebar
+    # Filter: pisahkan skipped dan yang perlu ditampilkan
+    n_skipped = sum(1 for r in results if r.get("_skipped"))
     results_display = []
     for r in results:
+        if r.get("_skipped"):
+            continue
         if r["flag"] == "KATA_INGGRIS" and not show_inggris:
             continue
         if r["flag"] == "KATA_SERAPAN" and not show_serapan:
@@ -744,11 +861,13 @@ if text_to_run:
                     if r["flag"] in ("TYPO", "REAL_WORD", "TYPO_KONTEKS"))
     n_flag    = len(results_display)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Total Token", total_tok)
     c2.metric("Token Bermasalah", n_err)
     c3.metric("Token Diflag", n_flag)
-    c4.metric("Waktu Analisis", f"{elapsed}s")
+    c4.metric("Token Di-skip", n_skipped,
+              help="Token yang dilewati filter pre-processing (gelar, akronim, nama proper)")
+    c5.metric("Waktu Analisis", f"{elapsed}s")
 
     # ── Teks hasil highlight ──────────────────────────────────
     st.markdown("### 📄 Teks dengan Anotasi")
