@@ -130,14 +130,7 @@ def is_all_caps_token(token: str) -> bool:
 
 def is_title_case_name(token: str, position: int) -> bool:
 
-    if len(token) <= 2:
-        return False
-
-    # Title Case biasa
-    if token[0].isupper() and not token.isupper():
-        return True
-
-    return False
+    return len(token) > 2 and token[0].isupper() and not token.isupper()
 
 
 # ==============================================================
