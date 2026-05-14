@@ -482,7 +482,7 @@ def analyze_text(
             if skip_proper_noun and is_title_case_name(tok, pos):
                 continue
             if is_all_caps_token(tok):
-            continue
+                continue
 
             jw_res = predict_jw(
                 t,
