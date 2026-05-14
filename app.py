@@ -422,6 +422,7 @@ def load_model():
 
 @st.cache_resource(show_spinner=False)
 def load_lexicons():
+
     def read_csv_safe(path: str) -> pd.DataFrame:
         for enc in ["utf-8", "utf-8-sig", "latin1"]:
             try:
@@ -437,52 +438,194 @@ def load_lexicons():
             col = df.columns[0] if len(df.columns) > 0 else None
         if col is None:
             return set()
-        return set(df[col].dropna().astype(str).str.strip().str.lower())
+
+        vals = (
+            df[col]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+        return set(v for v in vals if len(v) >= 2)
+
+    # ==========================================================
+    # DOWNLOAD SEMUA LEKSIKON
+    # ==========================================================
 
     lex_dfs = {}
-    for key in ["kbbi", "kata_inggris", "kata_serapan",
-                "akronim", "daftar_lembaga",
-                "daftar_nama_orang", "istilah_islam"]:
+
+    for key in [
+        "kbbi",
+        "kata_inggris",
+        "kata_serapan",
+        "akronim",
+        "daftar_lembaga",
+        "daftar_nama_orang",
+        "istilah_islam",
+        "sample_correct_2025",   # <<< TAMBAHAN BARU
+    ]:
+
         local_path = os.path.join(LEXICON_LOCAL, f"{key}.csv")
+
         if not os.path.exists(local_path):
             gdown.download(
                 id=DRIVE_IDS[key],
                 output=local_path,
                 quiet=True,
             )
+
         lex_dfs[key] = read_csv_safe(local_path)
 
-    kbbi_set    = to_set(lex_dfs["kbbi"], "kata")
-    inggris_set = to_set(lex_dfs["kata_inggris"], "headword") - kbbi_set
+    # ==========================================================
+    # KBBI
+    # ==========================================================
+
+    kbbi_set = to_set(
+        lex_dfs["kbbi"],
+        "kata"
+    )
+
+    # ==========================================================
+    # INGGRIS
+    # ==========================================================
+
+    inggris_set = (
+        to_set(
+            lex_dfs["kata_inggris"],
+            "headword"
+        )
+        - kbbi_set
+    )
+
+    # ==========================================================
+    # WHITELIST DASAR
+    # ==========================================================
 
     whitelist_set = set()
-    for key in ["akronim", "daftar_lembaga",
-                "daftar_nama_orang", "istilah_islam"]:
+
+    for key in [
+        "akronim",
+        "daftar_lembaga",
+        "daftar_nama_orang",
+        "istilah_islam",
+    ]:
+
         col = LEXICON_COL_MAP[key]
-        whitelist_set.update(to_set(lex_dfs[key], col))
+
+        whitelist_set.update(
+            to_set(lex_dfs[key], col)
+        )
+
+    # ==========================================================
+    # DOMAIN VOCAB BERITA UIN 2025
+    # ==========================================================
+
+    df_domain = lex_dfs.get(
+        "sample_correct_2025",
+        pd.DataFrame()
+    )
+
+    domain_vocab = set()
+
+    if not df_domain.empty:
+
+        first_col = df_domain.columns[0]
+
+        vals = (
+            df_domain[first_col]
+            .dropna()
+            .astype(str)
+            .str.lower()
+            .str.strip()
+        )
+
+        # tokenisasi ringan
+        for row in vals:
+
+            toks = re.findall(
+                r"\b[a-zA-Z][a-zA-Z\-]{2,}\b",
+                row
+            )
+
+            for tok in toks:
+
+                # skip angka
+                if tok.isdigit():
+                    continue
+
+                # skip token pendek
+                if len(tok) < 3:
+                    continue
+
+                domain_vocab.add(tok)
+
+    # ==========================================================
+    # MASUKKAN DOMAIN VOCAB KE WHITELIST
+    # ==========================================================
+
+    whitelist_set.update(domain_vocab)
+
+    # ==========================================================
+    # SERAPAN
+    # ==========================================================
 
     serapan_map = {}
     serapan_set = set()
-    df_s = lex_dfs.get("kata_serapan", pd.DataFrame())
+
+    df_s = lex_dfs.get(
+        "kata_serapan",
+        pd.DataFrame()
+    )
+
     if not df_s.empty:
+
         col_asal = next(
-            (c for c in df_s.columns if "asal" in c.lower() or "asing" in c.lower()),
+            (
+                c for c in df_s.columns
+                if "asal" in c.lower()
+                or "asing" in c.lower()
+            ),
             df_s.columns[0]
         )
+
         col_serapan = next(
-            (c for c in df_s.columns if "serapan" in c.lower() or "hasil" in c.lower()),
+            (
+                c for c in df_s.columns
+                if "serapan" in c.lower()
+                or "hasil" in c.lower()
+            ),
             df_s.columns[-1]
         )
+
         for _, row in df_s.iterrows():
-            asal    = normalize_token(str(row[col_asal]))
-            serapan = normalize_token(str(row[col_serapan]))
+
+            asal = normalize_token(
+                str(row[col_asal])
+            )
+
+            serapan = normalize_token(
+                str(row[col_serapan])
+            )
+
             if asal and serapan:
+
                 serapan_map[asal] = serapan
                 serapan_set.add(asal)
 
     kbbi_list = sorted(kbbi_set)
-    return (kbbi_set, inggris_set, whitelist_set,
-            serapan_map, serapan_set, kbbi_list)
+
+    print(f"[DEBUG] domain_vocab: {len(domain_vocab)}")
+    print(f"[DEBUG] whitelist total: {len(whitelist_set)}")
+
+    return (
+        kbbi_set,
+        inggris_set,
+        whitelist_set,
+        serapan_map,
+        serapan_set,
+        kbbi_list,
+    )
 
 # ==============================================================
 # ALGORITMA JARO-WINKLER
