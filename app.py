@@ -191,16 +191,25 @@ def load_lexicons():
                 continue
         return pd.DataFrame()
 
-    def to_set(df: pd.DataFrame, col: str) -> set:
+def to_set(df: pd.DataFrame, col: str) -> set:
+
     if col not in df.columns:
         col = df.columns[0] if len(df.columns) > 0 else None
+
     if col is None:
         return set()
 
     vals = df[col].dropna().astype(str)
-    normalized = [normalize_token(v) for v in vals]
 
-    return set(v for v in normalized if len(v) >= 2)
+    normalized = [
+        normalize_token(v)
+        for v in vals
+    ]
+
+    return set(
+        v for v in normalized
+        if len(v) >= 2
+    )
 
     lex_dfs = {}
     for key in [
