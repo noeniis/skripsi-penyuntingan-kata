@@ -485,10 +485,20 @@ def analyze_text(
 
             status = jw_res["status"]
 
-           if status in ["KATA_INGGRIS", "KATA_SERAPAN", "WHITELIST_KHUSUS", "KBBI_VALID", "ANGKA"]:
-    bert_res = {"pred": 0, "prob_correct": 1.0, "prob_error": 0.0}
-else:
-    bert_res = predict_bert(sent, t, tokenizer, bert_model, device)
+          if status in [
+                "KATA_INGGRIS",
+                "KATA_SERAPAN",
+                "WHITELIST_KHUSUS",
+                "KBBI_VALID",
+                "ANGKA",
+            ]:
+                bert_res = {
+                    "pred": 0,
+                    "prob_correct": 1.0,
+                    "prob_error": 0.0,
+                }
+            else:
+                bert_res = predict_bert(sent, t, tokenizer, bert_model, device)
     
             jw_pred = jw_res["pred"]
             bert_pred = bert_res["pred"]
