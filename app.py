@@ -171,7 +171,7 @@ def normalize_token(token: str) -> str:
 
 
 def escape_html(text: str) -> str:
-    return html_lib.escape(text).replace("\n", "<br>")
+    return html_lib.escape(text)
 
 
 def simple_sentence_spans(text: str) -> List[Tuple[str, int, int]]:
