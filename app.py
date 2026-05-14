@@ -472,7 +472,7 @@ def analyze_text(
             if skip_proper_noun and is_title_case_name(tok, pos):
                 continue
 
-                        jw_res = predict_jw(
+            jw_res = predict_jw(
                 t,
                 kbbi_set,
                 inggris_set,
