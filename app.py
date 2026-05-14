@@ -200,6 +200,7 @@ def load_lexicons():
         return pd.DataFrame()
 
     def to_set(df: pd.DataFrame, col: str) -> set:
+
         if df is None or df.empty:
             return set()
 
@@ -212,8 +213,10 @@ def load_lexicons():
         vals = df[col].dropna().astype(str)
 
         normalized = []
+
         for v in vals:
             v = normalize_token(v)
+
             if v and len(v) >= 2:
                 normalized.append(v)
 
