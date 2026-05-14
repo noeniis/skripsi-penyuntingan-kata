@@ -472,7 +472,7 @@ def analyze_text(
             if skip_proper_noun and is_title_case_name(tok, pos):
                 continue
 
-            jw_res = predict_jw(
+                        jw_res = predict_jw(
                 t,
                 kbbi_set,
                 inggris_set,
@@ -485,7 +485,7 @@ def analyze_text(
 
             status = jw_res["status"]
 
-          if status in [
+            if status in [
                 "KATA_INGGRIS",
                 "KATA_SERAPAN",
                 "WHITELIST_KHUSUS",
@@ -499,7 +499,7 @@ def analyze_text(
                 }
             else:
                 bert_res = predict_bert(sent, t, tokenizer, bert_model, device)
-    
+
             jw_pred = jw_res["pred"]
             bert_pred = bert_res["pred"]
             final_pred = decide_final_pred(model_choice, jw_pred, bert_pred)
