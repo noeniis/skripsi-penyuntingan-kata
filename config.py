@@ -9,7 +9,7 @@ DRIVE_IDS = {
     "kbbi"              : "1RooLxbgIn3LN3nJgl6C5325F1Ciwugio",
     "kata_inggris"      : "11I2tLBZCUDY85HWelRHXCuWClnDS14Cj",
     "kata_serapan"      : "1g_TCVwcFfDLYYnob5Ylnm5LaxSDNtCmO",
-    "akronim"           : "1cvY0gJ1zmsFvS6R6q7dRGSXPi4LMK7qn",
+    "akronim"           : "1TrHDSwcMCguu_UdEn7_hkXLytNNvTzMd",
     "daftar_lembaga"    : "1RfRHN6rTa-JPPXV0SCGq1nl2k0EUDRUJ",
     "daftar_nama_orang" : "1Kfehgx-OyfR1ePUbUq0Rzw96-zbvnBxT",
     "istilah_islam"     : "1JhbRw7-J7B6xyJ9GdFSyea1tjEplEEBB",
