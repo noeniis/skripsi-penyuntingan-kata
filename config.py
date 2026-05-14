@@ -13,7 +13,7 @@ DRIVE_IDS = {
     "daftar_lembaga"    : "1CHnEqraKO_JJgLcpYeDFo3_5dcFcydPp",
     "daftar_nama_orang" : "1BiisLUPvM_rmbh6okLQkcFlMlSRjKGy6",
     "istilah_islam"     : "1JhbRw7-J7B6xyJ9GdFSyea1tjEplEEBB",
-    "sample_correct_2025": "1gT7UwwHE7on1-kfJfIx2GQS61U8zH-eW",,
+    "sample_correct_2025": "1gT7UwwHE7on1-kfJfIx2GQS61U8zH-eW",
 }
 
 # Konfigurasi model IndoBERT
