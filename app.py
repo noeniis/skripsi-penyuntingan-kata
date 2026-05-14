@@ -556,20 +556,24 @@ def analyze_text(
 
             status = jw_res["status"]
 
-            # Short-circuit untuk token yang sudah valid / non-error
-            if status in [
-                "KATA_INGGRIS",
-                "KATA_SERAPAN",
-                "WHITELIST_KHUSUS",
-                "KBBI_VALID",
-                "ANGKA",
-            ]:
+            # Short-circuit HANYA untuk token yang sudah pasti non-error:
+            # - WHITELIST_KHUSUS : akronim, nama lembaga, nama orang, istilah Islam
+            # - KATA_INGGRIS     : ditandai sebagai kata asing (ditampilkan, bukan error)
+            # - KATA_SERAPAN     : ditandai sebagai kata serapan (ditampilkan, bukan error)
+            # - ANGKA            : token numerik
+            #
+            # KBBI_VALID sengaja TIDAK di-short-circuit agar IndoBERT tetap berjalan
+            # dan dapat mendeteksi real-word error (kesalahan kontekstual pada kata
+            # yang valid secara leksikal). Ini sesuai dengan temuan notebook bahwa
+            # kontribusi BERT_ONLY signifikan untuk kasus seperti ini.
+            if status in ["KATA_INGGRIS", "KATA_SERAPAN", "WHITELIST_KHUSUS", "ANGKA"]:
                 bert_res = {
                     "pred": 0,
                     "prob_correct": 1.0,
                     "prob_error": 0.0,
                 }
             else:
+                # Termasuk KBBI_VALID dan TIDAK_DIKENAL — BERT dijalankan penuh
                 bert_res = predict_bert(sent, t, tokenizer, bert_model, device)
 
             jw_pred = jw_res["pred"]
@@ -584,9 +588,18 @@ def analyze_text(
                 flag = "KATA_SERAPAN"
                 tipe = "Kata Serapan"
                 final_pred = 0
+            elif status == "KBBI_VALID" and jw_pred == 0 and bert_pred == 1:
+                # Real-word error: leksikal valid (JW=OK) tapi konteks salah (BERT=ERROR)
+                # Hanya ditampilkan jika model yang dipilih mengikutkan BERT
+                if model_choice in ("IndoBERT", "Hybrid-OR"):
+                    flag = "REAL_WORD_ERROR"
+                    tipe = "Kesalahan Kontekstual"
+                    final_pred = 1
+                else:
+                    continue
             elif final_pred == 1:
                 flag = "TYPO"
-                tipe = "Typo"
+                tipe = "Typo / Salah Ejaan"
             else:
                 continue
 
@@ -595,6 +608,8 @@ def analyze_text(
             if status == "KATA_INGGRIS":
                 padanan = serapan_map.get(t)
                 catatan = f"Padanan KBBI: '{padanan}'" if padanan else "Gunakan huruf miring jika dipertahankan"
+            elif flag == "REAL_WORD_ERROR":
+                catatan = "Kata valid secara ejaan, tetapi IndoBERT mendeteksi ketidaksesuaian konteks kalimat. Periksa makna dan kecocokan kata dalam kalimat ini."
 
             results.append(
                 {
@@ -629,11 +644,12 @@ def analyze_text(
 
 FLAG_STYLES = {
     "TYPO": {"label": "Salah ketik", "bg": "#ffd6d6", "border": "#d64545", "text": "#7a1111"},
+    "REAL_WORD_ERROR": {"label": "Kesalahan kontekstual", "bg": "#ede9fe", "border": "#7c3aed", "text": "#3b0764"},
     "KATA_INGGRIS": {"label": "Kata asing", "bg": "#fff2b3", "border": "#d4a017", "text": "#6b4f00"},
     "KATA_SERAPAN": {"label": "Kata serapan", "bg": "#dbeafe", "border": "#3b82f6", "text": "#1e3a8a"},
 }
 
-FLAG_ORDER = ["TYPO", "KATA_INGGRIS", "KATA_SERAPAN"]
+FLAG_ORDER = ["TYPO", "REAL_WORD_ERROR", "KATA_INGGRIS", "KATA_SERAPAN"]
 
 
 def build_tooltip(row: dict) -> str:
@@ -730,6 +746,9 @@ with st.sidebar:
     st.markdown("---")
     show_inggris = st.toggle("Tampilkan kata Inggris", value=True)
     show_serapan = st.toggle("Tampilkan kata serapan", value=True)
+    show_real_word = st.toggle("Tampilkan kesalahan kontekstual (real-word)", value=True,
+                               help="Kata yang valid secara ejaan tetapi terdeteksi salah konteks oleh IndoBERT. "
+                                    "Hanya aktif pada mode IndoBERT dan Hybrid-OR.")
     skip_proper_noun = st.toggle("Lewati nama orang/tempat (huruf kapital)", value=True)
     st.caption("Gelar akademik, akronim ALL-CAPS, dan angka selalu dilewati otomatis.")
     st.markdown("---")
@@ -807,22 +826,26 @@ if text_to_run:
             continue
         if r["flag"] == "KATA_SERAPAN" and not show_serapan:
             continue
+        if r["flag"] == "REAL_WORD_ERROR" and not show_real_word:
+            continue
         results_display.append(r)
 
     st.markdown("---")
 
     total_tok = len([t for t in re.findall(r"\b\w+\b", text_to_run, flags=re.UNICODE) if len(t) >= 2])
     n_err = sum(1 for r in results_display if r["flag"] == "TYPO")
+    n_real_word = sum(1 for r in results_display if r["flag"] == "REAL_WORD_ERROR")
     n_flag = len(results_display)
     n_inggris = sum(1 for r in results_display if r["flag"] == "KATA_INGGRIS")
-    n_serapan = sum(1 for r in results_display if r["flag"] == "KATA_SERAPAN")
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Total Token", total_tok)
-    c2.metric("Token Bermasalah", n_err)
-    c3.metric("Token Diflag", n_flag)
-    c4.metric("Kata Inggris", n_inggris)
-    c5.metric("Waktu Analisis", f"{elapsed}s")
+    c2.metric("Salah Ejaan", n_err)
+    c3.metric("Salah Konteks", n_real_word,
+              help="Real-word error: kata valid secara ejaan tapi terdeteksi salah konteks oleh IndoBERT")
+    c4.metric("Total Diflag", n_flag)
+    c5.metric("Kata Inggris", n_inggris)
+    c6.metric("Waktu Analisis", f"{elapsed}s")
 
     st.markdown("### 📄 Teks dengan Anotasi")
     st.markdown("_Arahkan kursor ke kata yang ditandai untuk melihat detail._")
@@ -867,7 +890,8 @@ if text_to_run:
 
         st.markdown("### 🔎 Detail Per Token")
         for r in results_display:
-            with st.expander(f"• **{r['token']}** — {r['tipe_error']}"):
+            icon = "🟣" if r["flag"] == "REAL_WORD_ERROR" else "🔴" if r["flag"] == "TYPO" else "🟡" if r["flag"] == "KATA_INGGRIS" else "🔵"
+            with st.expander(f"{icon} **{r['token']}** — {r['tipe_error']}"):
                 col_l, col_r = st.columns(2)
 
                 with col_l:
@@ -876,15 +900,27 @@ if text_to_run:
                     st.markdown(f"**Jaro-Winkler:** {r['jw_pred']} (sim = {r['jw_sim']})")
                     st.markdown(f"**IndoBERT:** {r['bert_pred']} (prob error = {r['prob_error']})")
                     if r["catatan"]:
-                        st.info(r["catatan"])
+                        if r["flag"] == "REAL_WORD_ERROR":
+                            st.warning(r["catatan"], icon="⚠️")
+                        else:
+                            st.info(r["catatan"])
 
                 with col_r:
-                    st.markdown("**Rekomendasi kata (top-5):**")
-                    if r["rekomendasi"]:
-                        for rec in r["rekomendasi"]:
-                            st.code(rec)
+                    if r["flag"] == "REAL_WORD_ERROR":
+                        st.markdown("**Deteksi kontekstual (IndoBERT):**")
+                        st.caption(
+                            "Kata ini valid secara leksikal di KBBI sehingga Jaro-Winkler "
+                            "tidak menandainya. IndoBERT mendeteksi ketidakcocokan dengan "
+                            "konteks kalimat. Periksa apakah kata ini tepat dalam kalimat ini."
+                        )
+                        st.progress(float(r["prob_error"]), text=f"Prob error BERT: {r['prob_error']:.4f}")
                     else:
-                        st.caption("Tidak ada rekomendasi spesifik.")
+                        st.markdown("**Rekomendasi kata (top-5):**")
+                        if r["rekomendasi"]:
+                            for rec in r["rekomendasi"]:
+                                st.code(rec)
+                        else:
+                            st.caption("Tidak ada rekomendasi spesifik.")
 
                 st.markdown("**Kalimat konteks:**")
                 highlighted = re.sub(
@@ -894,3 +930,4 @@ if text_to_run:
                     count=1,
                 )
                 st.markdown(f"> {highlighted}")
+
