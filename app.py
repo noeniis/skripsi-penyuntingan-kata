@@ -481,7 +481,6 @@ def analyze_text(
                 continue
             if skip_proper_noun and is_title_case_name(tok, pos):
                 continue
-            # skip akronim kapital penuh
             if is_all_caps_token(tok):
             continue
 
