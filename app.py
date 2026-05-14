@@ -179,8 +179,6 @@ def load_model():
 
 @st.cache_resource(show_spinner=False)
 def load_lexicons():
-    """Unduh (jika belum ada) dan bangun semua set leksikon dari Drive."""
-
     def read_csv_safe(path: str) -> pd.DataFrame:
         for enc in ["utf-8", "utf-8-sig", "latin1"]:
             try:
@@ -191,28 +189,28 @@ def load_lexicons():
                 continue
         return pd.DataFrame()
 
-def to_set(df: pd.DataFrame, col: str) -> set:
+    def to_set(df: pd.DataFrame, col: str) -> set:
+        if df is None or df.empty:
+            return set()
 
-    if col not in df.columns:
-        col = df.columns[0] if len(df.columns) > 0 else None
+        if col not in df.columns:
+            col = df.columns[0] if len(df.columns) > 0 else None
 
-    if col is None:
-        return set()
+        if col is None:
+            return set()
 
-    vals = df[col].dropna().astype(str)
+        vals = df[col].dropna().astype(str)
 
-    normalized = [
-        normalize_token(v)
-        for v in vals
-    ]
+        normalized = []
+        for v in vals:
+            v = normalize_token(v)
+            if v and len(v) >= 2:
+                normalized.append(v)
 
-    return set(
-        v for v in normalized
-        if len(v) >= 2
-    )
-    
+        return set(normalized)
+
     lex_dfs = {}
-    for key in [
+    keys = [
         "kbbi",
         "kata_inggris",
         "kata_serapan",
@@ -220,43 +218,59 @@ def to_set(df: pd.DataFrame, col: str) -> set:
         "daftar_lembaga",
         "daftar_nama_orang",
         "istilah_islam",
-        "sample_correct_2025",
-    ]:
+    ]
+
+    if "sample_correct_2025" in DRIVE_IDS:
+        keys.append("sample_correct_2025")
+
+    for key in keys:
         local_path = os.path.join(LEXICON_LOCAL, f"{key}.csv")
         if not os.path.exists(local_path):
-            gdown.download(id=DRIVE_IDS[key], output=local_path, quiet=True)
+            try:
+                gdown.download(id=DRIVE_IDS[key], output=local_path, quiet=True)
+            except Exception:
+                pass
         lex_dfs[key] = read_csv_safe(local_path)
 
-    kbbi_set = to_set(lex_dfs["kbbi"], "kata")
+    kbbi_set = to_set(lex_dfs.get("kbbi", pd.DataFrame()), "kata")
 
-    df_ing = lex_dfs["kata_inggris"]
-    if "headword" in df_ing.columns:
-        ing_col = "headword"
+    df_ing = lex_dfs.get("kata_inggris", pd.DataFrame())
+    if not df_ing.empty:
+        if "headword" in df_ing.columns:
+            ing_col = "headword"
+        else:
+            ing_col = df_ing.columns[0]
+        inggris_set = to_set(df_ing, ing_col) - kbbi_set
     else:
-        ing_col = df_ing.columns[0] if len(df_ing.columns) > 0 else None
-
-    inggris_set = to_set(df_ing, ing_col) - kbbi_set if ing_col else set()
+        inggris_set = set()
 
     whitelist_set = set()
     for key in ["akronim", "daftar_lembaga", "daftar_nama_orang", "istilah_islam"]:
-        col = LEXICON_COL_MAP[key]
-        whitelist_set.update(to_set(lex_dfs[key], col))
+        whitelist_set.update(to_set(lex_dfs.get(key, pd.DataFrame()), LEXICON_COL_MAP[key]))
 
-    # tambahan vocabulary domain dari sample_correct_2025
+    # domain vocabulary tambahan dari sample_correct_2025
     df_domain = lex_dfs.get("sample_correct_2025", pd.DataFrame())
     if not df_domain.empty:
         first_col = df_domain.columns[0]
         vals = df_domain[first_col].dropna().astype(str).str.lower().str.strip()
+        domain_vocab = set()
         for row in vals:
             toks = re.findall(r"\b[a-zA-Z][a-zA-Z\-]{2,}\b", row)
-            whitelist_set.update(tok.lower() for tok in toks if len(tok) >= 3)
+            domain_vocab.update(tok.lower() for tok in toks if len(tok) >= 3)
+        whitelist_set.update(domain_vocab)
 
     serapan_map = {}
     serapan_set = set()
     df_s = lex_dfs.get("kata_serapan", pd.DataFrame())
     if not df_s.empty:
-        col_asal = next((c for c in df_s.columns if "asal" in c.lower() or "asing" in c.lower()), df_s.columns[0])
-        col_serapan = next((c for c in df_s.columns if "serapan" in c.lower() or "hasil" in c.lower()), df_s.columns[-1])
+        col_asal = next(
+            (c for c in df_s.columns if "asal" in c.lower() or "asing" in c.lower()),
+            df_s.columns[0]
+        )
+        col_serapan = next(
+            (c for c in df_s.columns if "serapan" in c.lower() or "hasil" in c.lower()),
+            df_s.columns[-1]
+        )
         for _, row in df_s.iterrows():
             asal = normalize_token(str(row[col_asal]))
             serapan = normalize_token(str(row[col_serapan]))
@@ -471,21 +485,11 @@ def analyze_text(
 
             status = jw_res["status"]
 
-            if status in [
-                "KATA_INGGRIS",
-                "KATA_SERAPAN",
-                "WHITELIST_KHUSUS",
-                "KBBI_VALID",
-                "ANGKA",
-            ]:
-                bert_res = {
-                    "pred": 0,
-                    "prob_correct": 1.0,
-                    "prob_error": 0.0,
-                }
-            else:
-                bert_res = predict_bert(sent, t, tokenizer, bert_model, device)
-
+           if status in ["KATA_INGGRIS", "KATA_SERAPAN", "WHITELIST_KHUSUS", "KBBI_VALID", "ANGKA"]:
+    bert_res = {"pred": 0, "prob_correct": 1.0, "prob_error": 0.0}
+else:
+    bert_res = predict_bert(sent, t, tokenizer, bert_model, device)
+    
             jw_pred = jw_res["pred"]
             bert_pred = bert_res["pred"]
             final_pred = decide_final_pred(model_choice, jw_pred, bert_pred)
