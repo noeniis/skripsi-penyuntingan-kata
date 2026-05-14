@@ -6,12 +6,12 @@ DRIVE_IDS = {
     "model_indobert"    : "1kF74xhsbfFDlOcu4_DgwMBjYVSOuYSMd",
 
     # File leksikon
-    "kbbi"              : "1JWMWhw7PJNJk-s65RMYDSH4f2pAW5mV4",
-    "kata_inggris"      : "1Ho6Q5YZ00uAfw3H0wgFSQ6UJ-2iD-NFG",
-    "kata_serapan"      : "1hNwi7pFTPk1XVCA3pCIhsmX5NM767Zky",
-    "akronim"           : "1cyhIF4Gs1JyaTuFRAu4Jzw7uY_EbJ2Fx",
-    "daftar_lembaga"    : "1CHnEqraKO_JJgLcpYeDFo3_5dcFcydPp",
-    "daftar_nama_orang" : "1BiisLUPvM_rmbh6okLQkcFlMlSRjKGy6",
+    "kbbi"              : "1RooLxbgIn3LN3nJgl6C5325F1Ciwugio",
+    "kata_inggris"      : "11I2tLBZCUDY85HWelRHXCuWClnDS14Cj",
+    "kata_serapan"      : "1g_TCVwcFfDLYYnob5Ylnm5LaxSDNtCmO",
+    "akronim"           : "1cvY0gJ1zmsFvS6R6q7dRGSXPi4LMK7qn",
+    "daftar_lembaga"    : "1RfRHN6rTa-JPPXV0SCGq1nl2k0EUDRUJ",
+    "daftar_nama_orang" : "1Kfehgx-OyfR1ePUbUq0Rzw96-zbvnBxT",
     "istilah_islam"     : "1JhbRw7-J7B6xyJ9GdFSyea1tjEplEEBB",
     "sample_correct_2025": "1gT7UwwHE7on1-kfJfIx2GQS61U8zH-eW",
 }
